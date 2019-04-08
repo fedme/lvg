@@ -6,7 +6,7 @@ from lib import rfid_reader as rd # import custom library that manages the physi
 # GLOBAL VARIABLES
 DEBUG = True # put to False to skip printing DEBUG information
 START_CODE = '0002148131'
-STOP_CODE = '0014667528'
+STOP_CODE = '0014667578'
 
 # READERS ADDRESSES
 readersAddresses = [
@@ -24,6 +24,14 @@ readersCorrectCodes = [
     '0002121660'  # Correct code for reader 4
 ]
 
+# READERS LEDs ADDRESSES
+readersLedsAddresses = [
+    18, # GPIO address of the reader 1 LED
+    23, # GPIO address of the reader 2 LED
+    25, # GPIO address of the reader 3 LED
+    16  # GPIO address of the reader 4 LED
+]
+
 # DATA VARIABLES
 initial_timestamp = None
 final_timestamp = None
@@ -34,11 +42,17 @@ def startExperiment():
     """Sets up the experiment"""
     initial_timestamp = time.time()
     scans = []
+    flashAllLeds(2)
+    if DEBUG:
+        print('Starting experiment...')
 
 
-def stopExperiment():
+def endExperiment():
     """Sets up the experiment"""
     final_timestamp = time.time()
+    flashAllLeds(4)
+    if DEBUG:
+        print('Ending experiment and saving data...')
     # TODO: save data to csv file
 
 
@@ -88,9 +102,8 @@ def lightUpReader(readerAddress):
     """
     if DEBUG:
         print('Lighting up reader ' + readerAddress)
-    GPIO.output(18, GPIO.HIGH)
-    time.sleep(3)
-    GPIO.output(18, GPIO.LOW)
+    
+    flashAllLeds()
 
 
 def getReaderCorrectCode(readerAddress):
@@ -100,13 +113,24 @@ def getReaderCorrectCode(readerAddress):
     return readersCorrectCodes[readersAddresses.index(readerAddress)]
 
 
+def flashAllLeds(times=1):
+    for i in range(times):
+        for led in readersLedsAddresses:
+            GPIO.output(led, GPIO.HIGH)
+        time.sleep(0.2)
+        for led in readersLedsAddresses:
+            GPIO.output(led, GPIO.LOW)
+        if i < times-1:
+            time.sleep(0.2)
+
+
 def main():
     """Program main function"""
 
     # setup LEDs
     GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    GPIO.setup(18, GPIO.OUT)
+    for led in readersLedsAddresses:
+        GPIO.setup(led, GPIO.OUT)
 
     # Initialize composite reader by passing the physical readers name
     reader = rd.RfidReader('HXGCoLtd')
@@ -121,6 +145,9 @@ def main():
     # IMPORTANT: the program is now stuck at the line above reading tags
     # The next lines of code will only be executed once the reader is stopped
     
+    # Clean up LEDs state
+    GPIO.cleanup()
+
     if DEBUG:
         print('Reader Stopped')
         print(scans)
