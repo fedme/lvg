@@ -9,6 +9,7 @@ class RfidReader:
     devices = []
     codeScannedCallback = None
     buffers = {}
+    debug = False
     scancodes = {
         # Scancode: ASCIICode
         0: None, 1: u'ESC', 2: u'1', 3: u'2', 4: u'3', 5: u'4', 6: u'5', 7: u'6', 8: u'7', 9: u'8',
@@ -19,7 +20,8 @@ class RfidReader:
         50: u'M', 51: u',', 52: u'.', 53: u'/', 54: u'RSHFT', 56: u'LALT', 100: u'RALT'
     }
 
-    def __init__(self, deviceName):
+    def __init__(self, deviceName, debug=False):
+        self.debug = debug
         self.registerDevices(deviceName)
 
     def getAvailableDevices(self):
