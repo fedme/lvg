@@ -1,5 +1,5 @@
 #!python3
-import sys, signal, time
+import sys, signal, time, csv
 import RPi.GPIO as GPIO
 from lib import rfid_reader as rd # import custom library that manages the physical tag readers
 
@@ -33,27 +33,25 @@ readersLedsAddresses = [
 ]
 
 # DATA VARIABLES
-initial_timestamp = None
-final_timestamp = None
 scans = [] # List containing all the scanned codes (with reader address and timestamp)
 
 
 def startExperiment():
     """Sets up the experiment"""
-    initial_timestamp = time.time()
-    scans = []
-    flashAllLeds(2)
+    scans = [] # Empty the list of scanned codes
+    logCode('', 'START') # Log special "START" code
+    flashAllLeds(2) # Flash LEDs 2 times
     if DEBUG:
         print('Starting experiment...')
 
 
 def endExperiment():
     """Sets up the experiment"""
-    final_timestamp = time.time()
-    flashAllLeds(4)
+    logCode('', 'END') # Log special "END" code
+    exportDataToCsv() # Save data to a CSV file
+    flashAllLeds(4) # Flassh LEDs 4 times
     if DEBUG:
         print('Ending experiment and saving data...')
-    # TODO: save data to csv file
 
 
 def codeScanned(readerAddress, code):
@@ -72,15 +70,18 @@ def codeScanned(readerAddress, code):
         endExperiment()
         return
 
-    # Else, log the scanned code
-    logCode(readerAddress, code)
+    # Is it the correct code for the reader?
+    isCorrectCode = code == getReaderCorrectCode(readerAddress)
+
+    # Log the scanned code
+    logCode(readerAddress, code, isCorrectCode)
 
     # And if it was the correct code for the reader, light up the reader
-    if code == getReaderCorrectCode(readerAddress):
+    if isCorrectCode:
         lightUpReader(readerAddress)
 
 
-def logCode(readerAddress, code):
+def logCode(readerAddress, code, isCorrectCode=False):
     """Logs a scanned code
     readerAddress - the address of the reader
     code - the code that the reader has scanned
@@ -89,7 +90,8 @@ def logCode(readerAddress, code):
     record = {
         'ts': timestamp,
         'readerAddress': readerAddress,
-        'code': code
+        'code': code,
+        'correct': isCorrectCode
     }
     scans.append(record)
     if DEBUG:
@@ -102,8 +104,7 @@ def lightUpReader(readerAddress):
     """
     if DEBUG:
         print('Lighting up reader ' + readerAddress)
-    
-    flashAllLeds()
+    flashAllLeds(forSeconds=3)
 
 
 def getReaderCorrectCode(readerAddress):
@@ -113,15 +114,24 @@ def getReaderCorrectCode(readerAddress):
     return readersCorrectCodes[readersAddresses.index(readerAddress)]
 
 
-def flashAllLeds(times=1):
+def flashAllLeds(times=1, forSeconds=0.2):
     for i in range(times):
         for led in readersLedsAddresses:
             GPIO.output(led, GPIO.HIGH)
-        time.sleep(0.2)
+        time.sleep(forSeconds)
         for led in readersLedsAddresses:
             GPIO.output(led, GPIO.LOW)
         if i < times-1:
-            time.sleep(0.2)
+            time.sleep(forSeconds)
+
+
+def exportDataToCsv():
+    """Exports the data to a CSV file named with the current date/time"""
+    keys = scans[0].keys()
+    with open('data/file.csv', 'wb') as outputFile:
+        dictWriter = csv.DictWriter(outputFile, keys)
+        dictWriter.writeheader()
+        dictWriter.writerows(scans)
 
 
 def main():
@@ -149,8 +159,7 @@ def main():
     GPIO.cleanup()
 
     if DEBUG:
-        print('Reader Stopped')
-        print(scans)
+        print('Closing program...')
 
 
 # Execute the main() function when the script is executed
