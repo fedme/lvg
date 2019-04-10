@@ -88,10 +88,10 @@ def logCode(readerAddress, code, isCorrectCode=False):
     """
     timestamp = time.time()
     record = {
-        'ts': timestamp,
+        'timestamp': timestamp,
         'readerAddress': readerAddress,
-        'code': code,
-        'correct': isCorrectCode
+        'scannedCode': code,
+        'isCorrect': isCorrectCode
     }
     scans.append(record)
     if DEBUG:
@@ -102,16 +102,23 @@ def lightUpReader(readerAddress):
     """Lights up a reader
     readerAddress - the address of the reader
     """
+    if readerAddress not in readersAddresses:
+        return
     if DEBUG:
         print('Lighting up reader ' + readerAddress)
-    flashAllLeds(forSeconds=3)
+    led = readersLedsAddresses[readersAddresses.index(readerAddress)]
+    GPIO.output(led, GPIO.HIGH)
+    time.sleep(4)
+    GPIO.output(led, GPIO.LOW)
 
 
 def getReaderCorrectCode(readerAddress):
     """Returns the correct code for a reader
     readerAddress - the address of the reader
     """
-    return readersCorrectCodes[readersAddresses.index(readerAddress)]
+    if readerAddress in readersAddresses:
+        return readersCorrectCodes[readersAddresses.index(readerAddress)]
+    return None
 
 
 def flashAllLeds(times=1, forSeconds=0.2):
@@ -127,8 +134,9 @@ def flashAllLeds(times=1, forSeconds=0.2):
 
 def exportDataToCsv():
     """Exports the data to a CSV file named with the current date/time"""
+    fileName = time.strftime("%Y%m%d-%H%M%S")
     keys = scans[0].keys()
-    with open('data/file.csv', 'wb') as outputFile:
+    with open('data/' + fileName + '.csv', 'w', encoding='utf8', newline='') as outputFile:
         dictWriter = csv.DictWriter(outputFile, keys)
         dictWriter.writeheader()
         dictWriter.writerows(scans)
