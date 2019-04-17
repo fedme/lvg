@@ -1,47 +1,25 @@
 #!python3
-import sys, signal, time, csv
+import sys, signal, time, csv, json
+from threading import Timer
 import RPi.GPIO as GPIO
 from lib import rfid_reader as rd # import custom library that manages the physical tag readers
 
 # GLOBAL VARIABLES
-DEBUG = True # put to False to skip printing DEBUG information
-START_CODE = '0002148131'
-STOP_CODE = '0014667578'
-
-# READERS ADDRESSES
-readersAddresses = [
-    'usb-3f980000.usb-1.2.2/input0', # USB address of reader 1
-    'usb-3f980000.usb-1.2.3/input0', # USB address of reader 2
-    'usb-3f980000.usb-1.2.4/input0', # USB address of reader 3
-    'usb-3f980000.usb-1.2.5/input0'  # USB address of reader 4
-]
-
-# READERS CORRECT CODES
-readersCorrectCodes = [
-    '0002121660', # Correct code for reader 1
-    '0002121660', # Correct code for reader 2 
-    '0002121660', # Correct code for reader 3
-    '0002121660'  # Correct code for reader 4
-]
-
-# READERS LEDs ADDRESSES
-readersLedsAddresses = [
-    18, # GPIO address of the reader 1 LED
-    23, # GPIO address of the reader 2 LED
-    25, # GPIO address of the reader 3 LED
-    16  # GPIO address of the reader 4 LED
-]
-
-# DATA VARIABLES
-scans = [] # List containing all the scanned codes (with reader address and timestamp)
+class Global:
+    # Settings. Will be populated from settings.json
+    settings = {}
+    # Data
+    scans = [] # List containing all the scanned codes (with reader address and timestamp)
+    #lastScan, used to debounce
+    lastScan = None
 
 
 def startExperiment():
     """Sets up the experiment"""
-    scans = [] # Empty the list of scanned codes
+    Global.scans = [] # Empty the list of scanned codes
     logCode('', 'START') # Log special "START" code
     flashAllLeds(2) # Flash LEDs 2 times
-    if DEBUG:
+    if Global.settings['debug']:
         print('Starting experiment...')
 
 
@@ -50,34 +28,41 @@ def endExperiment():
     logCode('', 'END') # Log special "END" code
     exportDataToCsv() # Save data to a CSV file
     flashAllLeds(4) # Flassh LEDs 4 times
-    if DEBUG:
+    if Global.settings['debug']:
         print('Ending experiment and saving data...')
 
 
 def codeScanned(readerAddress, code):
     """Function that gets called every time a tag is scanned
     readerAddress - the address of the USB port where the physical reader is connected
-    code - the code that the reader has scansned
+    code - the code that the reader has scanned
     """
+    # Debounce scan
+    now = time.time()
+    if Global.lastScan != None:
+        then, lastAddress, lastCode = Global.lastScan
+        if (now - then) < Global.settings['debounceSeconds'] and code == lastCode and readerAddress == lastAddress:
+            return
+    Global.lastScan = (now, readerAddress, code)
 
     # If the start code is scanned, start experiment
-    if code == START_CODE:
+    if code == Global.settings['startCode']:
         startExperiment()
         return
 
     # If the stop code is scanned, stop the experiment
-    if code == STOP_CODE:
+    if code == Global.settings['stopCode']:
         endExperiment()
         return
 
     # Is it the correct code for the reader?
-    isCorrectCode = code == getReaderCorrectCode(readerAddress)
+    isActivationCode = code in getReaderActivationCodes(readerAddress)
 
     # Log the scanned code
-    logCode(readerAddress, code, isCorrectCode)
+    logCode(readerAddress, code, isActivationCode)
 
     # And if it was the correct code for the reader, light up the reader
-    if isCorrectCode:
+    if isActivationCode:
         lightUpReader(readerAddress)
 
 
@@ -89,12 +74,13 @@ def logCode(readerAddress, code, isCorrectCode=False):
     timestamp = time.time()
     record = {
         'timestamp': timestamp,
-        'readerAddress': readerAddress,
+        'conditionId': Global.settings['conditionToRun'],
+        'readerIndex': getReaderIndex(readerAddress),
         'scannedCode': code,
         'isCorrect': isCorrectCode
     }
-    scans.append(record)
-    if DEBUG:
+    Global.scans.append(record)
+    if Global.settings['debug']:
         print('CODE SCANNED:', timestamp, readerAddress, code)
 
 
@@ -102,31 +88,41 @@ def lightUpReader(readerAddress):
     """Lights up a reader
     readerAddress - the address of the reader
     """
-    if readerAddress not in readersAddresses:
+    if readerAddress not in Global.settings['readersAddresses']:
         return
-    if DEBUG:
+    if Global.settings['debug']:
         print('Lighting up reader ' + readerAddress)
-    led = readersLedsAddresses[readersAddresses.index(readerAddress)]
+    readerIndex = getReaderIndex(readerAddress)
+    led = Global.settings['readersLedsAddresses'][readerIndex]
     GPIO.output(led, GPIO.HIGH)
-    time.sleep(4)
-    GPIO.output(led, GPIO.LOW)
+
+    timer = Timer(Global.settings['lightOnSeconds'], lambda: GPIO.output(led, GPIO.LOW))
+    timer.start()
 
 
-def getReaderCorrectCode(readerAddress):
+def getReaderIndex(readerAddress):
+    if readerAddress in Global.settings['readersAddresses']:
+        return Global.settings['readersAddresses'].index(readerAddress)
+    return None
+
+
+def getReaderActivationCodes(readerAddress):
     """Returns the correct code for a reader
     readerAddress - the address of the reader
     """
-    if readerAddress in readersAddresses:
-        return readersCorrectCodes[readersAddresses.index(readerAddress)]
+    if readerAddress in Global.settings['readersAddresses']:
+        readerIndex = getReaderIndex(readerAddress)
+        condition = Global.settings['conditions'][Global.settings['conditionToRun']]
+        return condition['readers'][readerIndex]['activatesFor']
     return None
 
 
 def flashAllLeds(times=1, forSeconds=0.2):
     for i in range(times):
-        for led in readersLedsAddresses:
+        for led in Global.settings['readersLedsAddresses']:
             GPIO.output(led, GPIO.HIGH)
         time.sleep(forSeconds)
-        for led in readersLedsAddresses:
+        for led in Global.settings['readersLedsAddresses']:
             GPIO.output(led, GPIO.LOW)
         if i < times-1:
             time.sleep(forSeconds)
@@ -135,25 +131,29 @@ def flashAllLeds(times=1, forSeconds=0.2):
 def exportDataToCsv():
     """Exports the data to a CSV file named with the current date/time"""
     fileName = time.strftime("%Y%m%d-%H%M%S")
-    keys = scans[0].keys()
+    keys = Global.scans[0].keys()
     with open('data/' + fileName + '.csv', 'w', encoding='utf8', newline='') as outputFile:
         dictWriter = csv.DictWriter(outputFile, keys)
         dictWriter.writeheader()
-        dictWriter.writerows(scans)
+        dictWriter.writerows(Global.scans)
 
 
 def main():
     """Program main function"""
 
+    # Read app settings
+    with open('settings.json') as handle:
+        Global.settings = json.loads(handle.read())
+
     # setup LEDs
     GPIO.setmode(GPIO.BCM)
-    for led in readersLedsAddresses:
+    for led in Global.settings['readersLedsAddresses']:
         GPIO.setup(led, GPIO.OUT)
 
     # Initialize composite reader by passing the physical readers name
     reader = rd.RfidReader('HXGCoLtd')
 
-    # Print the list of physical readers for DEBUG reasons
+    # Print the list of physical readers for Global.settings['debug'] reasons
     print('Connected physical readers:')
     reader.printActiveDevices()
 
@@ -166,8 +166,8 @@ def main():
     # Clean up LEDs state
     GPIO.cleanup()
 
-    if DEBUG:
-        print('Closing program...')
+    if Global.settings['debug']:
+        print(' Closing program...')
 
 
 # Execute the main() function when the script is executed
