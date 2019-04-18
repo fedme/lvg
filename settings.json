@@ -17,6 +17,7 @@
         25,
         16
     ],
+    "statusLedAddress": 26,
     "conditions": [
         {
             "id": 0,

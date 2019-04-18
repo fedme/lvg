@@ -12,22 +12,29 @@ class Global:
     scans = [] # List containing all the scanned codes (with reader address and timestamp)
     #lastScan, used to debounce
     lastScan = None
+    started = False
 
 
 def startExperiment():
     """Sets up the experiment"""
+    Global.started = True
     Global.scans = [] # Empty the list of scanned codes
     logCode('', 'START') # Log special "START" code
-    flashAllLeds(2) # Flash LEDs 2 times
+    flashStatusLed(2) # Flash status LED 2 times
+    GPIO.output(Global.settings['statusLedAddress'], GPIO.HIGH) # Leave status LED on
     if Global.settings['debug']:
         print('Starting experiment...')
 
 
 def endExperiment():
     """Sets up the experiment"""
+    if not Global.started:
+        return
+    Global.started = False
     logCode('', 'END') # Log special "END" code
     exportDataToCsv() # Save data to a CSV file
-    flashAllLeds(4) # Flassh LEDs 4 times
+    flashStatusLed(4) # Flash  status LED 4 times
+    GPIO.output(Global.settings['statusLedAddress'], GPIO.LOW) # Turn status LED off
     if Global.settings['debug']:
         print('Ending experiment and saving data...')
 
@@ -117,13 +124,11 @@ def getReaderActivationCodes(readerAddress):
     return None
 
 
-def flashAllLeds(times=1, forSeconds=0.2):
+def flashStatusLed(times=1, forSeconds=0.1):
     for i in range(times):
-        for led in Global.settings['readersLedsAddresses']:
-            GPIO.output(led, GPIO.HIGH)
+        GPIO.output(Global.settings['statusLedAddress'], GPIO.HIGH)
         time.sleep(forSeconds)
-        for led in Global.settings['readersLedsAddresses']:
-            GPIO.output(led, GPIO.LOW)
+        GPIO.output(Global.settings['statusLedAddress'], GPIO.LOW)
         if i < times-1:
             time.sleep(forSeconds)
 
@@ -147,6 +152,7 @@ def main():
 
     # setup LEDs
     GPIO.setmode(GPIO.BCM)
+    GPIO.setup(Global.settings['statusLedAddress'], GPIO.OUT)
     for led in Global.settings['readersLedsAddresses']:
         GPIO.setup(led, GPIO.OUT)
 
